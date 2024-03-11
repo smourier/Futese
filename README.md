@@ -61,3 +61,5 @@ static void SimpleTest(Index<string> index)
     result.Should().BeEquivalentTo([]);
 }
 ```
+
+PS: 'Futese' stands for **FU**ll **TE**xt **SE**arch.
