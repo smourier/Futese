@@ -13,17 +13,26 @@ namespace Futese.Tests
 
         static void SimpleTest()
         {
+            // create an index with string keys
             var index = new Index<string>();
+
+            // add keys and phrases
             index.Add("a", "This is a simple phrase");
             index.Add("b", "And this one is another phrase a bit longer");
             index.Add("c", "The last phrase (this one) contains french (with diacritics) like 'réveillez-vous à l'heure!'");
+
+            // search
             SimpleTest(index);
 
+            // persist to a file
             var fileName = "test.fts";
             index.Save(fileName);
 
+            // load from a file
             var newIndex = new Index<string>();
             newIndex.Load(fileName);
+
+            // search again
             SimpleTest(newIndex);
 
             newIndex.KeysCount.Should().Be(index.KeysCount);
