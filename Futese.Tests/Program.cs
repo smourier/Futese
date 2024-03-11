@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using FluentAssertions;
 
 namespace Futese.Tests
@@ -7,11 +8,30 @@ namespace Futese.Tests
     {
         static void Main()
         {
+            SimpleTest();
+        }
+
+        static void SimpleTest()
+        {
             var index = new Index<string>();
             index.Add("a", "This is a simple phrase");
             index.Add("b", "And this one is another phrase a bit longer");
             index.Add("c", "The last phrase (this one) contains french (with diacritics) like 'réveillez-vous à l'heure!'");
+            SimpleTest(index);
 
+            var fileName = "test.fts";
+            index.Save(fileName);
+
+            var newIndex = new Index<string>();
+            newIndex.Load(fileName);
+            SimpleTest(newIndex);
+
+            newIndex.KeysCount.Should().Be(index.KeysCount);
+            Console.WriteLine("OK");
+        }
+
+        static void SimpleTest(Index<string> index)
+        {
             string[] result;
             result = index.Search("this").Distinct().ToArray();
             result.Should().BeEquivalentTo(["a", "b", "c"]);

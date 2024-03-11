@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -8,12 +9,15 @@ using System.Text;
 
 namespace Futese
 {
-    public class Index<TKey>(ITokenizer? tokenizer = null)
+    public class Index<TKey>(ITokenizer? tokenizer = null, IEqualityComparer<TKey>? keyEqualityComparer = null) where TKey : IParsable<TKey>
     {
+        private const string _fileSig = "FTS0";
+        private static readonly bool _isKeyString = typeof(TKey) == typeof(string);
         private static readonly Encoding _encoding = Encoding.UTF8;
-        private readonly NoKeysBranchWithToken _root = new([]);
+        private readonly NoKeysBranch _root = new([]);
 
         public ITokenizer Tokenizer { get; } = tokenizer ?? new DefaultTokenizer();
+        public IEqualityComparer<TKey> KeyEqualityComparer { get; } = keyEqualityComparer ?? EqualityComparer<TKey>.Default;
         public int KeysCount { get; private set; }
 
         public virtual void Add(TKey key, string text)
@@ -67,7 +71,7 @@ namespace Futese
             {
                 if (query.Tokens[0] is QueryToken qt) // if it's a qt, it's a Not
                 {
-                    var not = SearchToken(qt.Text).ToHashSet();
+                    var not = SearchToken(qt.Text).ToHashSet(KeyEqualityComparer);
                     foreach (var key in GetAllKeys(_root))
                     {
                         if (not.Contains(key))
@@ -85,7 +89,7 @@ namespace Futese
                 yield break;
             }
 
-            var set = new HashSet<TKey>();
+            var set = new HashSet<TKey>(KeyEqualityComparer);
             foreach (var token in query.Tokens.Where(t => t is QueryToken qt && qt.Type == QueryTokenType.Or))
             {
                 foreach (var key in SearchToken(token.Text))
@@ -110,7 +114,7 @@ namespace Futese
                 }
 
                 i++;
-                set = set.Intersect(SearchToken(token.Text)).ToHashSet();
+                set = set.Intersect(SearchToken(token.Text)).ToHashSet(KeyEqualityComparer);
             }
 
             if (set.Count == 0)
@@ -142,22 +146,102 @@ namespace Futese
             }
         }
 
+        public void Load(string filePath)
+        {
+            ArgumentNullException.ThrowIfNull(filePath);
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            Load(stream);
+        }
+
         public virtual void Load(Stream stream)
         {
             ArgumentNullException.ThrowIfNull(stream);
+            var sig = new byte[_fileSig.Length];
+            if (stream.Read(sig, 0, 4) != sig.Length)
+                throw new InvalidDataException();
+
+            if (!sig.SequenceEqual(Encoding.ASCII.GetBytes(_fileSig)))
+                throw new InvalidDataException();
+
+            KeysCount = 0;
+            using var gz = new GZipStream(stream, CompressionMode.Decompress);
+            using var ms = new MemoryStream(); // otherwise it's very slow
+            gz.CopyTo(ms);
+            ms.Position = 0;
+            var reader = new BinaryReader(ms);
+
+            // root has no token
+            _ = reader.ReadInt32();
+            var keys = reader.ReadInt32();
+            var children = reader.ReadInt32();
+            var uniqueKeys = new HashSet<TKey>(KeyEqualityComparer);
+            AddChildren(reader, uniqueKeys, _root, keys, children);
+            KeysCount = uniqueKeys.Count;
+            GC.Collect();
         }
 
-        public void Save(string filePath, CompressionLevel compressionLevel = CompressionLevel.SmallestSize)
+        private static void AddChildren(BinaryReader reader, HashSet<TKey> uniqueKeys, INode node, int keys, int children)
+        {
+            for (var i = 0; i < keys; i++)
+            {
+                var k = reader.ReadString();
+                if (!_isKeyString)
+                {
+                    var key = TKey.Parse(k, CultureInfo.InvariantCulture);
+                    node.Keys!.Add(key);
+                    uniqueKeys.Add(key);
+                }
+                else
+                {
+                    var key = (TKey)(object)k;
+                    node.Keys!.Add(key);
+                    uniqueKeys.Add(key);
+                }
+            }
+
+            for (var i = 0; i < children; i++)
+            {
+                var child = Read(reader, uniqueKeys);
+                node.Children!.Add(child.Token, child);
+            }
+        }
+
+        private static INode Read(BinaryReader reader, HashSet<TKey> uniqueKeys)
+        {
+            var tokenLength = reader.ReadInt32();
+            var token = reader.ReadBytes(tokenLength);
+            var keys = reader.ReadInt32();
+
+            INode node;
+            var children = reader.ReadInt32();
+            if (children == 0)
+            {
+                node = new Leaf(token);
+            }
+            else if (keys == 0)
+            {
+                node = new NoKeysBranch(token);
+            }
+            else
+            {
+                node = new KeysBranch(token);
+            }
+
+            AddChildren(reader, uniqueKeys, node, keys, children);
+            return node;
+        }
+
+        public void Save(string filePath, CompressionLevel compressionLevel = CompressionLevel.Optimal)
         {
             ArgumentNullException.ThrowIfNull(filePath);
             using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
             Save(stream, compressionLevel);
         }
 
-        public virtual void Save(Stream stream, CompressionLevel compressionLevel = CompressionLevel.SmallestSize)
+        public virtual void Save(Stream stream, CompressionLevel compressionLevel = CompressionLevel.Optimal)
         {
             ArgumentNullException.ThrowIfNull(stream);
-            stream.Write(Encoding.ASCII.GetBytes("FTS0"));
+            stream.Write(Encoding.ASCII.GetBytes(_fileSig));
             using var gz = new GZipStream(stream, compressionLevel, true);
             var writer = new BinaryWriter(gz);
             Write(writer, _root);
@@ -165,30 +249,20 @@ namespace Futese
 
         private static void Write(BinaryWriter writer, INode node)
         {
+            writer.Write(node.Token.Length);
             writer.Write(node.Token);
-            byte options = 0;
+            writer.Write(node.Keys?.Count ?? 0);
+            writer.Write(node.Children?.Count ?? 0);
             if (node.Keys != null)
             {
-                options |= 1;
-            }
-
-            if (node.Children != null)
-            {
-                options |= 2;
-            }
-            writer.Write(options);
-            if (node.Keys != null)
-            {
-                writer.Write(node.Keys.Count);
                 foreach (var key in node.Keys)
                 {
-                    writer.Write(key!.ToString()!);
+                    writer.Write(string.Format(CultureInfo.InvariantCulture, "{0}", key));
                 }
             }
 
             if (node.Children != null)
             {
-                writer.Write(node.Children.Count);
                 foreach (var kv in node.Children)
                 {
                     Write(writer, kv.Value);
@@ -258,9 +332,9 @@ namespace Futese
             var textBytes = text.ToArray();
             if (branch.Children.TryGetValue(textBytes, out var child))
             {
-                if (child is NoKeysBranchWithToken nkb)
+                if (child is NoKeysBranch nkb)
                 {
-                    var withKeys = new KeysBranchWithToken(nkb.Token);
+                    var withKeys = new KeysBranch(nkb.Token);
                     foreach (var kv in nkb.Children)
                     {
                         withKeys.Children.Add(kv);
@@ -294,7 +368,7 @@ namespace Futese
 
                     var newLeaf = new Leaf(text[matchLength..]);
                     newLeaf.Keys.Add(key);
-                    var newBranch = new KeysBranchWithToken(matchKey);
+                    var newBranch = new KeysBranch(matchKey);
                     foreach (var oldKey in matchNode.Value.Keys!)
                     {
                         newBranch.Keys.Add(oldKey);
@@ -308,7 +382,7 @@ namespace Futese
 
                 // make a split
                 branch.Children.Remove(matchNode);
-                var top = new NoKeysBranchWithToken(text[..matchLength]);
+                var top = new NoKeysBranch(text[..matchLength]);
                 branch.Children.Add(top.Token, top);
 
                 Span<byte> keySpan = matchKey;
@@ -317,11 +391,11 @@ namespace Futese
                 {
                     if (matchNode.Value.Keys != null)
                     {
-                        existingChild = new KeysBranchWithToken(keySpan[matchLength..]);
+                        existingChild = new KeysBranch(keySpan[matchLength..]);
                     }
                     else
                     {
-                        existingChild = new NoKeysBranchWithToken(keySpan[matchLength..]);
+                        existingChild = new NoKeysBranch(keySpan[matchLength..]);
                     }
 
                     foreach (var oldChildren in matchNode.Value.Children)
@@ -385,30 +459,20 @@ namespace Futese
             IDictionary<byte[], INode>? Children { get; }
         }
 
-        private abstract class NoKeysBranch(ReadOnlySpan<byte> token) : INode
+        private class NoKeysBranch(ReadOnlySpan<byte> token) : INode
         {
             public byte[] Token { get; } = token.ToArray();
             public virtual ICollection<TKey>? Keys => null;
             public IDictionary<byte[], INode> Children { get; } = new Dictionary<byte[], INode>(ByteArrayEqualityComparer.Instance);
 
-            public override string ToString() => string.Join(',', Children.Select(kv => _encoding.GetString(kv.Key) + "=" + kv.Value));
+            public override string ToString() => _encoding.GetString(Token) + ":" + string.Join(',', Children.Select(kv => _encoding.GetString(kv.Key) + "=" + kv.Value));
         }
 
-        private sealed class NoKeysBranchWithToken(ReadOnlySpan<byte> token) : NoKeysBranch(token), INode
-        {
-            public override string ToString() => _encoding.GetString(Token) + ":" + base.ToString();
-        }
-
-        private abstract class KeysBranch(ReadOnlySpan<byte> token) : NoKeysBranch(token)
+        private class KeysBranch(ReadOnlySpan<byte> token) : NoKeysBranch(token)
         {
             public override ICollection<TKey> Keys { get; } = [];
 
-            public override string ToString() => string.Join(',', Keys) + ":" + base.ToString();
-        }
-
-        private sealed class KeysBranchWithToken(ReadOnlySpan<byte> token) : KeysBranch(token), INode
-        {
-            public override string ToString() => _encoding.GetString(Token) + ":" + base.ToString();
+            public override string ToString() => base.ToString() + ":" + string.Join(',', Keys);
         }
 
         private sealed class Leaf(ReadOnlySpan<byte> token) : INode
