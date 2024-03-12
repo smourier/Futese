@@ -19,8 +19,10 @@ namespace Futese
         public ITokenizer Tokenizer { get; } = tokenizer ?? new DefaultTokenizer();
         public IEqualityComparer<TKey> KeyEqualityComparer { get; } = keyEqualityComparer ?? EqualityComparer<TKey>.Default;
         public int KeysCount { get; private set; }
+        public IEnumerable<TKey> Keys => GetAllKeys(_root).Distinct();
 
-        public virtual void Add(TKey key, string text)
+        public void Add(TKey key) => Add(key, key is IStringable s ? s.ToString() : key.ToString()!);
+        public virtual void Add(TKey key, string? text)
         {
             ArgumentNullException.ThrowIfNull(key);
             foreach (var token in Tokenizer.EnumerateTokens(text))
@@ -37,6 +39,22 @@ namespace Futese
 
             var bytes = _encoding.GetBytes(token).AsSpan();
             Add(key, bytes, _root);
+        }
+
+        public int Remove(TKey key) => Remove([key]);
+        public virtual int Remove(IEnumerable<TKey> keys)
+        {
+            if (keys == null)
+                return 0;
+
+            var uniqueKeys = keys.Select(k => new RemovedKey(k)).ToHashSet(new RemovedKeyEqualityComparer(KeyEqualityComparer));
+            if (uniqueKeys.Count == 0)
+                return 0;
+
+            Remove(uniqueKeys, _root);
+            var count = uniqueKeys.Count(k => k.Removed);
+            KeysCount -= count;
+            return count;
         }
 
         // note these methods don't guarantee distinct nor ordered results
@@ -165,7 +183,7 @@ namespace Futese
 
             KeysCount = 0;
             using var gz = new GZipStream(stream, CompressionMode.Decompress);
-            using var ms = new MemoryStream(); // otherwise it's very slow
+            using var ms = new MemoryStream(); // otherwise it's very slow, weird when saving is very efficient
             gz.CopyTo(ms);
             ms.Position = 0;
             var reader = new BinaryReader(ms);
@@ -178,6 +196,44 @@ namespace Futese
             AddChildren(reader, uniqueKeys, _root, keys, children);
             KeysCount = uniqueKeys.Count;
             GC.Collect();
+        }
+
+        public void Save(string filePath, CompressionLevel compressionLevel = CompressionLevel.Optimal)
+        {
+            ArgumentNullException.ThrowIfNull(filePath);
+            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+            Save(stream, compressionLevel);
+        }
+
+        public virtual void Save(Stream stream, CompressionLevel compressionLevel = CompressionLevel.Optimal)
+        {
+            ArgumentNullException.ThrowIfNull(stream);
+            stream.Write(Encoding.ASCII.GetBytes(_fileSig));
+            using var gz = new GZipStream(stream, compressionLevel, true);
+            var writer = new BinaryWriter(gz);
+            Write(writer, _root);
+        }
+
+        private static void Remove(ISet<RemovedKey> keys, INode node)
+        {
+            if (node.Keys != null)
+            {
+                foreach (var key in keys)
+                {
+                    if (node.Keys.Remove(key.Key))
+                    {
+                        key.Removed = true;
+                    }
+                }
+            }
+
+            if (node.Children != null)
+            {
+                foreach (var kv in node.Children)
+                {
+                    Remove(keys, kv.Value);
+                }
+            }
         }
 
         private static void AddChildren(BinaryReader reader, HashSet<TKey> uniqueKeys, INode node, int keys, int children)
@@ -231,22 +287,6 @@ namespace Futese
             return node;
         }
 
-        public void Save(string filePath, CompressionLevel compressionLevel = CompressionLevel.Optimal)
-        {
-            ArgumentNullException.ThrowIfNull(filePath);
-            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
-            Save(stream, compressionLevel);
-        }
-
-        public virtual void Save(Stream stream, CompressionLevel compressionLevel = CompressionLevel.Optimal)
-        {
-            ArgumentNullException.ThrowIfNull(stream);
-            stream.Write(Encoding.ASCII.GetBytes(_fileSig));
-            using var gz = new GZipStream(stream, compressionLevel, true);
-            var writer = new BinaryWriter(gz);
-            Write(writer, _root);
-        }
-
         private static void Write(BinaryWriter writer, INode node)
         {
             writer.Write(node.Token.Length);
@@ -257,7 +297,16 @@ namespace Futese
             {
                 foreach (var key in node.Keys)
                 {
-                    writer.Write(string.Format(CultureInfo.InvariantCulture, "{0}", key));
+                    string skey;
+                    if (key is IStringable stringable)
+                    {
+                        skey = stringable.ToString();
+                    }
+                    else
+                    {
+                        skey = string.Format(CultureInfo.InvariantCulture, "{0}", key);
+                    }
+                    writer.Write(skey);
                 }
             }
 
@@ -497,6 +546,18 @@ namespace Futese
                 }
                 return hashCode;
             }
+        }
+
+        private sealed class RemovedKey(TKey key)
+        {
+            public TKey Key = key;
+            public bool Removed;
+        }
+
+        private sealed class RemovedKeyEqualityComparer(IEqualityComparer<TKey> keyEqualityComparer) : IEqualityComparer<RemovedKey>
+        {
+            public bool Equals(RemovedKey? x, RemovedKey? y) => keyEqualityComparer.Equals(x!.Key, y!.Key);
+            public int GetHashCode([DisallowNull] RemovedKey obj) => obj.Key.GetHashCode();
         }
     }
 }

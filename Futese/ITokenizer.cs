@@ -4,6 +4,6 @@ namespace Futese
 {
     public interface ITokenizer
     {
-        IEnumerable<Token> EnumerateTokens(string text);
+        IEnumerable<Token> EnumerateTokens(string? text);
     }
 }

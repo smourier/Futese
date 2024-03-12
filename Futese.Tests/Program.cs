@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using FluentAssertions;
 
@@ -8,7 +9,8 @@ namespace Futese.Tests
     {
         static void Main()
         {
-            SimpleTest();
+            //SimpleTest();
+            TestWithObjects();
         }
 
         static void SimpleTest()
@@ -36,6 +38,14 @@ namespace Futese.Tests
             SimpleTest(newIndex);
 
             newIndex.KeysCount.Should().Be(index.KeysCount);
+
+            newIndex.Remove("a");
+            newIndex.KeysCount.Should().Be(index.KeysCount - 1);
+            newIndex.KeysCount.Should().Be(newIndex.Keys.Count());
+
+            newIndex.Remove(["a", "b", "c"]);
+            newIndex.KeysCount.Should().Be(0);
+
             Console.WriteLine("OK");
         }
 
@@ -65,6 +75,77 @@ namespace Futese.Tests
 
             result = index.Search("-this | last").Distinct().ToArray();
             result.Should().BeEquivalentTo([]);
+        }
+
+        // a key must be IParsable
+        private sealed class Customer(int id, string firstName, string lastName, int age) : IParsable<Customer>, IEquatable<Customer>
+        {
+            public int Id => id;
+            public string FirstName => firstName;
+            public string LastName => lastName;
+            public int Age => age;
+
+            public override string ToString() => id + "\t" + firstName + "\t" + lastName + "\t" + age;
+
+            // use id as the real key
+            public override int GetHashCode() => id.GetHashCode();
+            public override bool Equals(object? obj) => Equals(obj as Customer);
+            public bool Equals(Customer? other) => other != null && other.Id == id;
+
+            public static Customer Parse(string s, IFormatProvider? provider)
+            {
+                var split = s.Split('\t');
+                return new Customer(int.Parse(split[0]), split[1], split[2], int.Parse(split[3]));
+            }
+
+            // not called by futese, you must always parse
+            public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out Customer result) => throw new NotImplementedException();
+        }
+
+        static void TestWithObjects()
+        {
+            // create an index with custom keys that also contains data
+            var index = new Index<Customer>();
+
+            index.Add(new(0, "alice", "hunting-bobby-crown", 25));
+            index.Add(new(1, "bob", "albert-down", 32));
+            index.Add(new(2, "carl", "ctrl-alt", 15));
+
+            // search
+            TestWithObjects(index);
+
+            // persist to a file
+            var fileName = "customer.fts";
+            index.Save(fileName);
+
+            // load from a file
+            var newIndex = new Index<Customer>();
+            newIndex.Load(fileName);
+
+            // search again
+            TestWithObjects(newIndex);
+        }
+
+        static void TestWithObjects(Index<Customer> index)
+        {
+            Customer[] result;
+            result = index.Search("al").Distinct().ToArray();
+            result.Should().OnlyContain(c => c.FirstName == "alice" || c.FirstName == "bob" || c.FirstName == "carl");
+
+            result = index.Search("b").Distinct().ToArray();
+            result.Should().OnlyContain(c => c.FirstName == "alice" || c.FirstName == "bob");
+
+            result = index.Search("a -c").Distinct().ToArray();
+            result.Should().OnlyContain(c => c.FirstName == "bob");
+
+            result = index.Search("a c").Distinct().ToArray();
+            result.Should().OnlyContain(c => c.FirstName == "alice" || c.FirstName == "carl");
+
+            result = index.Search("a d").Distinct().ToArray();
+            result.Should().OnlyContain(c => c.FirstName == "bob");
+
+            result = index.Search("hunting a").Distinct().ToArray();
+            result.Should().OnlyContain(c => c.FirstName == "alice");
         }
     }
 }
