@@ -72,6 +72,7 @@ private sealed class Customer(int id, string firstName, string lastName, int age
     public string LastName => lastName;
     public int Age => age;
 
+    // by default, the index will use object.ToString() to persist the key, but you can also implement IStringable.ToString()
     public override string ToString() => id + "\t" + firstName + "\t" + lastName + "\t" + age;
 
     // use id as the real key
