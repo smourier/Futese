@@ -1,10 +1,13 @@
 # Futese
-A simple in-memory persistable full text search engine in less than 800 lines of C# code:
+'Futese' stands for **FU**ll **TE**xt **SE**arch.
+
+It's a simple in-memory persistable full text search engine in less than 800 lines of C# code:
 
 * The index part tokenizes strings and adds corresponding keys to the index
 * The index tokenizer is customizable. By default it removes diacritics and stores lowercase-only
 * The query part can search for phrases. It supports AND (blah blih), OR (blah | blih) and NOT (blah - blih) with its own tokenizer
 * The index can be saved to a stream (or a file) and reloaded
+* The whole code is also available as a single .cs file: [Futese.cs](Amalgamation/Futese.cs)
 
 ```
 // create an index with string keys
@@ -140,6 +143,3 @@ static void TestWithObjects(Index<Customer> index)
     result.Should().OnlyContain(c => c.FirstName == "alice");
 }
 ```
-
-
-PS: 'Futese' stands for **FU**ll **TE**xt **SE**arch.
