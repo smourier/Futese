@@ -64,15 +64,18 @@ static void SimpleTest(Index<string> index)
 You can also use complex keys, for example this `Customer` class can be used as a key, and its data will be persisted too:
 
 ```
-// a key must be IParsable
-private sealed class Customer(int id, string firstName, string lastName, int age) : IParsable<Customer>, IEquatable<Customer>
+// a key must be IParsable and should generally implement IEquatable<T>
+private sealed class Customer(int id, string firstName, string lastName, int age) :
+    IParsable<Customer>, IEquatable<Customer>
 {
     public int Id => id;
     public string FirstName => firstName;
     public string LastName => lastName;
     public int Age => age;
 
-    // by default, the index will use object.ToString() to persist the key, but you can also implement IStringable.ToString()
+    // used when saved to a stream.
+    // by default, the index will use object.ToString() to persist the key,
+    // but you can also implement IStringable.ToString()
     public override string ToString() => id + "\t" + firstName + "\t" + lastName + "\t" + age;
 
     // use id as the real key
@@ -80,13 +83,14 @@ private sealed class Customer(int id, string firstName, string lastName, int age
     public override bool Equals(object? obj) => Equals(obj as Customer);
     public bool Equals(Customer? other) => other != null && other.Id == id;
 
+    // used when loading from a stream
     public static Customer Parse(string s, IFormatProvider? provider)
     {
         var split = s.Split('\t');
         return new Customer(int.Parse(split[0]), split[1], split[2], int.Parse(split[3]));
     }
 
-    // not called by futese, you must always parse
+    // not called by futese which expects Parse to succeed
     public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out Customer result) => throw new NotImplementedException();
 }
 ```
