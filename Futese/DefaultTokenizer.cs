@@ -7,7 +7,7 @@ namespace Futese
 {
     public class DefaultTokenizer : ITokenizer
     {
-        public virtual IEnumerable<Token> EnumerateTokens(string text)
+        public virtual IEnumerable<Token> EnumerateTokens(string? text)
         {
             text = Preprocess(text)!;
             if (string.IsNullOrEmpty(text))

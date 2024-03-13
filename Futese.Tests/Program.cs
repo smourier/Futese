@@ -9,15 +9,20 @@ namespace Futese.Tests
     {
         static void Main()
         {
-            //SimpleTest();
-            TestWithObjects();
+            // create an index with string keys
+            RunSimpleTest(new Index<string>());
+            RunSimpleTest(new ThreadSafeIndex<string>());
+            RunSimpleTest(new ConcurrentIndex<string>());
+
+            // create an index with custom keys that also contains data
+            RunWithObjects(new Index<Customer>());
+            RunWithObjects(new ThreadSafeIndex<Customer>());
+            RunWithObjects(new ConcurrentIndex<Customer>());
+            Console.WriteLine("OK");
         }
 
-        static void SimpleTest()
+        static void RunSimpleTest(BaseIndex<string> index)
         {
-            // create an index with string keys
-            var index = new Index<string>();
-
             // add keys and phrases
             index.Add("a", "This is a simple phrase");
             index.Add("b", "And this one is another phrase a bit longer");
@@ -45,11 +50,9 @@ namespace Futese.Tests
 
             newIndex.Remove(["a", "b", "c"]);
             newIndex.KeysCount.Should().Be(0);
-
-            Console.WriteLine("OK");
         }
 
-        static void SimpleTest(Index<string> index)
+        static void SimpleTest(BaseIndex<string> index)
         {
             string[] result;
             result = index.Search("this").Distinct().ToArray();
@@ -102,11 +105,8 @@ namespace Futese.Tests
             public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out Customer result) => throw new NotImplementedException();
         }
 
-        static void TestWithObjects()
+        static void RunWithObjects(BaseIndex<Customer> index)
         {
-            // create an index with custom keys that also contains data
-            var index = new Index<Customer>();
-
             index.Add(new(0, "alice", "hunting-bobby-crown", 25));
             index.Add(new(1, "bob", "albert-down", 32));
             index.Add(new(2, "carl", "ctrl-alt", 15));
@@ -126,7 +126,7 @@ namespace Futese.Tests
             TestWithObjects(newIndex);
         }
 
-        static void TestWithObjects(Index<Customer> index)
+        static void TestWithObjects(BaseIndex<Customer> index)
         {
             Customer[] result;
             result = index.Search("al").Distinct().ToArray();
