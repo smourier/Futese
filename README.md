@@ -7,7 +7,7 @@ It's a simple in-memory persistable full text search engine in less than 1000 li
 * The index tokenizer is customizable. By default it removes diacritics and stores lowercase-only
 * The query part can search for phrases. It supports AND (blah blih), OR (blah | blih) and NOT (blah - blih) with its own tokenizer
 * The index can be saved to a stream (or a file) and reloaded
-* A thread-safe (using locks) and a concurrent versions (using ConcurrentDictionary) are provided. The former uses much more memory.
+* A thread-safe vesion using locks  (`ThreadSafeIndex<T>`) and a concurrent versions using ConcurrentDictionary (`ConcurrentIndex<T>`) are provided. `ConcurrentIndex<T>` uses much more memory.
 * You can an index using a non thread-safe version, save it and load it with a thread-safe version
 * The whole code is also available as a single .cs file: [Futese.cs](Amalgamation/Futese.cs)
 
