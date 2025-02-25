@@ -11,7 +11,7 @@ It's a simple in-memory persistable full text search engine in less than 1000 li
 * You can an index using a non thread-safe version, save it and load it with a thread-safe version
 * The whole code is also available as a single .cs file: [Futese.cs](Amalgamation/Futese.cs)
 
-```
+```c#
 // create an index with string keys
 var index = new Index<string>();
 
@@ -37,7 +37,7 @@ SimpleTest(newIndex);
 newIndex.KeysCount.Should().Be(index.KeysCount);
 ```
 
-```
+```c#
 static void SimpleTest(Index<string> index)
 {
     string[] result;
@@ -68,7 +68,7 @@ static void SimpleTest(Index<string> index)
 ```
 You can also use complex keys, for example this `Customer` class can be used as a key, and its data will be persisted too:
 
-```
+```c#
 // a key must be IParsable and should generally implement IEquatable<T>
 private sealed class Customer(int id, string firstName, string lastName, int age) :
     IParsable<Customer>, IEquatable<Customer>
@@ -101,7 +101,7 @@ private sealed class Customer(int id, string firstName, string lastName, int age
 ```
 And this is how you'd use it:
 
-```
+```c#
 var index = new Index<Customer>();
 
 index.Add(new(0, "alice", "hunting-bobby-crown", 25));
@@ -122,7 +122,8 @@ newIndex.Load(fileName);
 // search again
 TestWithObjects(newIndex);
 ```
-```
+
+```c#
 static void TestWithObjects(Index<Customer> index)
 {
     Customer[] result;
